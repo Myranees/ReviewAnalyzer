@@ -1,3 +1,4 @@
+nltk
 streamlit
 pandas
 numpy
@@ -5,8 +6,7 @@ matplotlib
 seaborn
 scikit-learn
 joblib
-LexRank
-nltk
+Luhn
 TextBlob
 STOPWORDS
 streamlit-option-menu

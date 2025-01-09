@@ -1,3 +1,6 @@
+import os
+os.environ['NLTK_DATA'] = './'
+
 import streamlit as st
 from streamlit_option_menu import option_menu
 import pandas as pd
@@ -8,6 +11,8 @@ from sklearn.metrics.pairwise import cosine_similarity
 import nltk
 nltk.download('punkt')  # For tokenization
 nltk.download('stopwords')  # For stopwords filtering
+import nltk
+nltk.data.find('tokenizers/punkt')  # Check if punkt is available
 import numpy as np
 from wordcloud import WordCloud
 from collections import Counter
