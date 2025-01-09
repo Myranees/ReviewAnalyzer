@@ -1,0 +1,13 @@
+streamlit
+pandas
+numpy
+matplotlib
+seaborn
+scikit-learn
+joblib
+LexRank
+nltk
+TextBlob
+STOPWORDS
+streamlit-option-menu
+wordcloud
