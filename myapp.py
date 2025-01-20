@@ -46,6 +46,13 @@ def luhn_summarize(text, num_sentences=3):
     summary = ' '.join([ranked_sentences[i][0] for i in range(min(num_sentences, len(ranked_sentences)))])
     return summary
 
+@st.cache_data
+def load_dataset(file_path):
+    return pd.read_csv(file_path)
+
+@st.cache_resource
+def load_model(model_path):
+    return joblib.load(model_path)
 # Load necessary data and models
 nltk.download('punkt')
 dataset = pd.read_csv("cleaned_reviews.csv")
@@ -172,6 +179,7 @@ unique_no_corpus = ' '.join([word for word in corpus_no.split() if word in uniqu
 common_corpus = ' '.join([word for word in corpus_yes.split() if word in common_words])
 
 # Word Cloud Generation Function
+@st.cache_data
 def create_wordcloud(corpus, colormap):
     return WordCloud(width=800, height=400, background_color='white', colormap=colormap, max_words=100).generate(corpus)
 
@@ -180,6 +188,34 @@ wordcloud_yes = create_wordcloud(unique_yes_corpus, 'Greens')
 wordcloud_no = create_wordcloud(unique_no_corpus, 'Reds')
 wordcloud_common = create_wordcloud(common_corpus, 'viridis')
 
+# Function to get unique words for a specific sentiment
+@st.cache_data
+def get_unique_words(data, target_sentiment):
+    all_words = Counter(" ".join(data['Cleaned_ReviewText']).split())
+    sentiment_words = Counter(" ".join(data[data['Sentiment'] == target_sentiment]['Cleaned_ReviewText']).split())
+
+    # Subtract the words of other sentiments
+    for sentiment in data['Sentiment'].unique():
+        if sentiment != target_sentiment:
+            other_words = Counter(" ".join(data[data['Sentiment'] == sentiment]['Cleaned_ReviewText']).split())
+            sentiment_words.subtract(other_words)
+
+    # Remove words with zero or negative count
+    unique_words = {word: count for word, count in sentiment_words.items() if count > 0}
+    return unique_words
+
+# Function to plot a word cloud using unique words
+@st.cache_data
+def plot_unique_word_cloud(unique_words, title):
+    wordcloud = WordCloud(
+        width=800, height=400, background_color='white', colormap='viridis'
+    ).generate_from_frequencies(unique_words)
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.imshow(wordcloud, interpolation='bilinear')
+    ax.axis('off')
+    ax.set_title(title, fontsize=16)
+    return fig
+    
 # Streamlit App
 st.markdown(
     """
@@ -244,7 +280,7 @@ if menu == "Project Overview":
         unsafe_allow_html=True
     )
     # Navigation Tabs
-    tabs = st.tabs(["Project Overview", "Code"])
+    tabs = st.tabs(["Project Overview","EDA", "Code"])
     # Read your code file into a variable
     with open('DSproject.py', 'r') as file:
         project_code = file.read()
@@ -283,9 +319,141 @@ if menu == "Project Overview":
             "2. To classify and analyze customer reviews into sentiment categories: positive, negative and constructive feedback.\n"
             "3. To predict if a customer will recommend the product based on the textual content of their reviews using machine learning models."
         )
-
-    # Placeholder for Code Tab
     with tabs[1]:
+        st.header("Exploratory Data Analysis")
+
+        # Top-level metrics
+        cust_reviews = len(dataset)
+        positive_reviews = len(dataset[dataset["Sentiment"] == "Positive"])
+        negative_reviews = len(dataset[dataset["Sentiment"] == "Negative"])
+        constructive_reviews = len(dataset[dataset["Sentiment"] == "Constructive"])
+
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Total Customer Reviews", cust_reviews)
+        col2.metric("Positive Sentiments", positive_reviews)
+        col3.metric("Constructive Sentiments", constructive_reviews)
+
+        st.subheader("Dataset Viewer")
+        rows = st.slider("Select number of rows to view", min_value=20, max_value=10000, value=20, step=5)
+        st.dataframe(dataset2.head(rows))
+
+        # Add an expander for feature information
+        with st.expander("Feature Information"):
+            st.write("""
+            - **Clothing ID**: Integer categorical variable that refers to the specific piece being reviewed.
+            - **Age**: Positive integer variable of the reviewer’s age.
+            - **Title**: String variable for the title of the review.
+            - **Review Text**: String variable for the review body.
+            - **Rating**: Positive ordinal integer variable for the product score granted by the customer from 1 (Worst) to 5 (Best).
+            - **Recommended IND**: Binary variable stating whether the customer recommends the product (1 = recommended, 0 = not recommended).
+            - **Positive Feedback Count**: Positive integer documenting the number of other customers who found this review positive.
+            - **Division Name**: Categorical name of the product's high-level division.
+            - **Department Name**: Categorical name of the product's department.
+            - **Class Name**: Categorical name of the product's class.
+            """)
+
+        st.header("Sentiment Categories Distribution")
+        sentiment_counts = dataset['Sentiment'].value_counts()
+
+        # Create the pie chart
+        fig, ax = plt.subplots(figsize=(8, 8))
+        sentiment_counts.plot.pie(
+            autopct='%1.1f%%',  # Display percentage
+            startangle=90,  # Rotate the pie chart
+            colors=['skyblue', 'lightgreen', 'salmon'],  # Colors for the slices
+            labels=sentiment_counts.index,  # Labels for each sentiment
+            ax=ax
+        )
+
+        # Add a title
+        ax.set_title('Sentiment Distribution')
+        ax.set_ylabel('')  # Hide the y-axis label
+        st.pyplot(fig)
+        st.write("Positive reviews dominate making up nearly half of all feedback (48.4%)")
+
+        # Unique Word Clouds for Sentiments
+        st.header("Unique Words in Sentiment Categories")
+        for sentiment in dataset['Sentiment'].unique():
+            st.subheader(f"Unique Word Cloud for {sentiment} Feedback")
+            unique_words = get_unique_words(dataset, sentiment)
+            wordcloud_fig = plot_unique_word_cloud(unique_words, f"Unique Word Cloud for {sentiment} Feedback")
+            st.pyplot(wordcloud_fig)
+
+        # Histogram for Review Length Distribution
+        st.header("Distribution of Review Length")
+        # Calculate review lengths
+        dataset['Review_Length'] = dataset['Cleaned_ReviewText'].apply(lambda x: len(x.split()))
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+        sns.histplot(dataset['Review_Length'], bins=20, kde=True, color='coral', ax=ax)
+        ax.set_title('Distribution of Review Length')
+        ax.set_xlabel('Number of Words in Review')  # Label for x-axis
+        ax.set_ylabel('Frequency')  # Label for y-axis
+        st.pyplot(fig)
+        st.write("Review length shows consistency across ratings, with most reviews falling between 20 and 60 words")
+
+        st.header("Correlation Heatmap of Numerical Features")
+
+        # Select only numerical columns for correlation
+        numeric_data = dataset.select_dtypes(include=[np.number])
+
+        # Compute the correlation matrix
+        corr = numeric_data.corr()
+
+        fig, ax = plt.subplots(figsize=(10, 8))
+        sns.heatmap(corr, annot=True, cmap='coolwarm', fmt='.2f', cbar=True, square=True, ax=ax)
+        ax.set_title('Correlation Heatmap of Numerical Features')
+        st.pyplot(fig)
+        st.write("Rating has strong positive relathionship with the Recommended_IND")
+
+
+        st.subheader("")
+        st.subheader("Insights on Products")
+        chart_option = st.selectbox("Select Insight Chart", ["Top 20 Most Common Words in Review", "Highest Negative Reviews","Highest Positive Reviews", "Distribution of Ratings","Unique Words in Recommended Reviews (Yes)","Unique Words in Not Recommended Reviews (No)"])
+        if chart_option == "Top 20 Most Common Words in Review":
+            image_url12 = 'https://64.media.tumblr.com/e817a565c57b505d33f4987b4e9e8018/4f777b1b61b2bbe0-02/s1280x1920/c76d5694c5d35fdb470131aec821a4274c41bec9.pnj'
+            st.image(image_url12, caption='')
+        elif chart_option == "Highest Negative Reviews":
+            negative_reviews = dataset[dataset['Sentiment'] == "Negative"]['Class_Name'].value_counts()
+            fig, ax = plt.subplots()
+            sns.barplot(x=negative_reviews.values, y=negative_reviews.index, ax=ax, palette="Reds_r")
+            ax.set_title("Departments with Highest Negative Reviews")
+            st.pyplot(fig)
+        elif chart_option == "Highest Positive Reviews":
+            positive_reviews = dataset[dataset['Sentiment'] == "Positive"]['Class_Name'].value_counts()
+            fig, ax = plt.subplots()
+            sns.barplot(x=positive_reviews.values, y=positive_reviews.index, ax=ax, palette="Blues_r")
+            ax.set_title("Departments with Highest Positive Reviews")
+            st.pyplot(fig)
+        elif chart_option == "Distribution of Ratings":
+            fig, ax = plt.subplots(figsize=(8, 5))
+            sns.countplot(x='Rating', data=dataset, palette='viridis', ax=ax)
+            ax.set_title('Distribution of Ratings')
+            ax.set_xlabel('Rating')  # Label for x-axis
+            ax.set_ylabel('Count')  # Label for y-axis
+            st.pyplot(fig)
+        elif chart_option == "Unique Words in Recommended Reviews (Yes)":
+            st.subheader("Unique Words in Recommended Reviews (Yes)")
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.imshow(wordcloud_yes, interpolation='bilinear')
+            ax.axis('off')
+            st.pyplot(fig)
+
+        elif chart_option == "Unique Words in Not Recommended Reviews (No)":
+            st.subheader("Unique Words in Not Recommended Reviews (No)")
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.imshow(wordcloud_no, interpolation='bilinear')
+            ax.axis('off')
+            st.pyplot(fig)
+
+        elif chart_option == "Common Words Across Reviews (Yes & No)":
+            st.subheader("Common Words Across Reviews (Yes & No)")
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.imshow(wordcloud_common, interpolation='bilinear')
+            ax.axis('off')
+            st.pyplot(fig)
+    # Placeholder for Code Tab
+    with tabs[2]:
         st.markdown("## **Code**")
         st.write("Code implementation details will be placed here.")
         st.code(project_code, language='python')
@@ -317,7 +485,7 @@ elif menu == "Analyzer":
         unsafe_allow_html=True
     )
     #Navigation Tabs
-    tabs = st.tabs(["Customer Review","Analyzer", "EDA", "Monitor"])
+    tabs = st.tabs(["Customer Review","Analyzer","Monitor"])
 
     #Review Tab
     with tabs[0]:
@@ -450,143 +618,6 @@ elif menu == "Analyzer":
                     st.error(f"Error: {e}")
 
     with tabs[2]:
-        st.header("Exploratory Data Analysis")
-
-        # Top-level metrics
-        cust_reviews = len(dataset)
-        positive_reviews = len(dataset[dataset["Sentiment"] == "Positive"])
-        negative_reviews = len(dataset[dataset["Sentiment"] == "Negative"])
-        constructive_reviews = len(dataset[dataset["Sentiment"] == "Constructive"])
-
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Total Customer Reviews", cust_reviews)
-        col2.metric("Positive Sentiments", positive_reviews)
-        col3.metric("Constructive Sentiments", constructive_reviews)
-
-        st.subheader("Dataset Viewer")
-        rows = st.slider("Select number of rows to view", min_value=20, max_value=10000, value=20, step=5)
-        st.dataframe(dataset2.head(rows))
-
-        # Add an expander for feature information
-        with st.expander("Feature Information"):
-            st.write("""
-            - **Clothing ID**: Integer categorical variable that refers to the specific piece being reviewed.
-            - **Age**: Positive integer variable of the reviewer’s age.
-            - **Title**: String variable for the title of the review.
-            - **Review Text**: String variable for the review body.
-            - **Rating**: Positive ordinal integer variable for the product score granted by the customer from 1 (Worst) to 5 (Best).
-            - **Recommended IND**: Binary variable stating whether the customer recommends the product (1 = recommended, 0 = not recommended).
-            - **Positive Feedback Count**: Positive integer documenting the number of other customers who found this review positive.
-            - **Division Name**: Categorical name of the product's high-level division.
-            - **Department Name**: Categorical name of the product's department.
-            - **Class Name**: Categorical name of the product's class.
-            """)
-
-        st.header("Sentiment Categories Distribution")
-        sentiment_counts = dataset['Sentiment'].value_counts()
-
-        # Create the pie chart
-        fig, ax = plt.subplots(figsize=(8, 8))
-        sentiment_counts.plot.pie(
-            autopct='%1.1f%%',  # Display percentage
-            startangle=90,  # Rotate the pie chart
-            colors=['skyblue', 'lightgreen', 'salmon'],  # Colors for the slices
-            labels=sentiment_counts.index,  # Labels for each sentiment
-            ax=ax
-        )
-
-        # Add a title
-        ax.set_title('Sentiment Distribution')
-        ax.set_ylabel('')  # Hide the y-axis label
-        st.pyplot(fig)
-
-        st.header("Distribution of product categories in customer reviews")
-        fig, ax = plt.subplots(figsize=(14, 5))
-        sns.countplot(x='Class_Name', data=dataset, ax=ax)
-        ax.set_title('Distribution of Class Names')
-        ax.set_xlabel('Class Name')  # Label for x-axis
-        ax.set_ylabel('Count')  # Label for y-axis
-        plt.xticks(rotation=45)
-        st.pyplot(fig)
-
-        # Histogram for Review Length Distribution
-        st.header("Distribution of Review Length")
-        # Calculate review lengths
-        dataset['Review_Length'] = dataset['Cleaned_ReviewText'].apply(lambda x: len(x.split()))
-
-        fig, ax = plt.subplots(figsize=(10, 6))
-        sns.histplot(dataset['Review_Length'], bins=20, kde=True, color='coral', ax=ax)
-        ax.set_title('Distribution of Review Length')
-        ax.set_xlabel('Number of Words in Review')  # Label for x-axis
-        ax.set_ylabel('Frequency')  # Label for y-axis
-        st.pyplot(fig)
-
-        st.header("Correlation Heatmap of Numerical Features")
-
-        # Select only numerical columns for correlation
-        numeric_data = dataset.select_dtypes(include=[np.number])
-
-        # Compute the correlation matrix
-        corr = numeric_data.corr()
-
-        fig, ax = plt.subplots(figsize=(10, 8))
-        sns.heatmap(corr, annot=True, cmap='coolwarm', fmt='.2f', cbar=True, square=True, ax=ax)
-        ax.set_title('Correlation Heatmap of Numerical Features')
-        st.pyplot(fig)
-
-        st.subheader("")
-        st.subheader("Insights on Products")
-        chart_option = st.selectbox("Select Insight Chart", ["Top 20 Most Common Words in Review", "Highest Negative Reviews","Highest Positive Reviews", "Distribution of Ratings","Unique Words in Recommended Reviews (Yes)","Unique Words in Not Recommended Reviews (No)"])
-        if chart_option == "Top 20 Most Common Words in Review":
-            image_url12 = 'https://64.media.tumblr.com/e817a565c57b505d33f4987b4e9e8018/4f777b1b61b2bbe0-02/s1280x1920/c76d5694c5d35fdb470131aec821a4274c41bec9.pnj'
-            st.image(image_url12, caption='')
-        elif chart_option == "Highest Negative Reviews":
-            negative_reviews = dataset[dataset['Sentiment'] == "Negative"]['Class_Name'].value_counts()
-            fig, ax = plt.subplots()
-            sns.barplot(x=negative_reviews.values, y=negative_reviews.index, ax=ax, palette="Reds_r")
-            ax.set_title("Departments with Highest Negative Reviews")
-            st.pyplot(fig)
-        elif chart_option == "Highest Positive Reviews":
-            positive_reviews = dataset[dataset['Sentiment'] == "Positive"]['Class_Name'].value_counts()
-            fig, ax = plt.subplots()
-            sns.barplot(x=positive_reviews.values, y=positive_reviews.index, ax=ax, palette="Blues_r")
-            ax.set_title("Departments with Highest Positive Reviews")
-            st.pyplot(fig)
-        elif chart_option == "Distribution of Ratings":
-            fig, ax = plt.subplots(figsize=(8, 5))
-            sns.countplot(x='Rating', data=dataset, palette='viridis', ax=ax)
-            ax.set_title('Distribution of Ratings')
-            ax.set_xlabel('Rating')  # Label for x-axis
-            ax.set_ylabel('Count')  # Label for y-axis
-            st.pyplot(fig)
-        elif chart_option == "Unique Words in Recommended Reviews (Yes)":
-            st.subheader("Unique Words in Recommended Reviews (Yes)")
-            fig, ax = plt.subplots(figsize=(10, 6))
-            ax.imshow(wordcloud_yes, interpolation='bilinear')
-            ax.axis('off')
-            st.pyplot(fig)
-
-        elif chart_option == "Unique Words in Not Recommended Reviews (No)":
-            st.subheader("Unique Words in Not Recommended Reviews (No)")
-            fig, ax = plt.subplots(figsize=(10, 6))
-            ax.imshow(wordcloud_no, interpolation='bilinear')
-            ax.axis('off')
-            st.pyplot(fig)
-
-        elif chart_option == "Common Words Across Reviews (Yes & No)":
-            st.subheader("Common Words Across Reviews (Yes & No)")
-            fig, ax = plt.subplots(figsize=(10, 6))
-            ax.imshow(wordcloud_common, interpolation='bilinear')
-            ax.axis('off')
-            st.pyplot(fig)
-        #elif chart_option == "Unique Words in Recommended Reviews (Yes)":
-            #image_url13 = 'https://64.media.tumblr.com/29285e4d56bdc2c5db225bd1459b7c47/e6f08c9dbe00434d-31/s640x960/dcdeaf21c9dcdff599e779a89deb2c8581bba31f.jpg'
-            #st.image(image_url13, caption='')
-        #elif chart_option == "Unique Words in Not Recommended Reviews (No)":
-            #image_url14 = 'https://64.media.tumblr.com/cd0dcddc45130a28d22999bea4e028e5/e6f08c9dbe00434d-9f/s640x960/c4b457033deaa4d33967fddbd6eab860922ab8e2.jpg'
-            #st.image(image_url14, caption='')
-
-    with tabs[3]:
         st.header("Monitor User Input")
         user_data = st.session_state.get("user_data", pd.DataFrame(columns=['Review', 'Sentiment', 'Recommendation', 'Category']))
 
@@ -633,6 +664,7 @@ elif menu == "Documentation":
         The **[Project Overview](?menu=Analyzer)** menu provides an overview of the project. It has:
         - Information about customer review and text mining.
         - Problem statement and project objectives to be achieved.
+        - Explore data distribution and trends using various charts and metrics.
         - Code for doing the data modeling and evaluation.
         """
     )
@@ -643,7 +675,6 @@ elif menu == "Documentation":
         The **[Analyzer](?menu=Analyzer)** section is divided into tabs:
         - **Customer Review Tab**: Provides an overview of positive feedback count with their review by selecting the product class,age group and rating.
         - **Analyzer Tab**: Enter a review to analyze sentiment, summary, and recommendations.
-        - **EDA Tab**: Explore data distribution and trends using various charts and metrics.
         - **Monitor Tab**: Review previously entered data and analyze sentiment trends.
         """
     )
