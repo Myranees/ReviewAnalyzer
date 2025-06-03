@@ -1,4 +1,4 @@
-##🛍️ E-Commerce: Customer Review Summarization Using Text Mining  
+## 🛍️ E-Commerce: Customer Review Summarization Using Text Mining  
 This project was developed as part of the WIH3001 Data Science Project course at FSKTM, Universiti Malaya. It focuses on improving the online shopping experience by summarizing customer reviews and predicting product recommendations through machine learning and text mining techniques. The system condenses lengthy reviews, classifies sentiments, and predicts recommendations based on review content, helping both customers and businesses make more informed decisions.
 
 ## Features
